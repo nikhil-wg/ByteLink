@@ -1,9 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import {
-  Link2, Copy, QrCode, BarChart3, Clock, TrendingUp, ExternalLink, Check, AlertCircle
-} from 'lucide-react';
-
-const API_BASE_URL = 'http://localhost:5000/api';
+import { Link2, Copy, QrCode, BarChart3, Clock, TrendingUp, ExternalLink, Check, AlertCircle } from 'lucide-react';
 
 function App() {
   const [url, setUrl] = useState('');
@@ -12,38 +8,44 @@ function App() {
   const [copiedId, setCopiedId] = useState(null);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [stats, setStats] = useState({ totalUrls: 0, totalClicks: 0 });
 
   useEffect(() => {
-    fetchUrls();
-    fetchStats();
+    const stored = localStorage.getItem('shortenedUrls');
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      setShortenedUrls(
+        parsed.map((item) => ({
+          ...item,
+          createdAt: new Date(item.createdAt),
+        }))
+      );
+    }
   }, []);
 
-  const fetchUrls = async () => {
+  useEffect(() => {
+    localStorage.setItem('shortenedUrls', JSON.stringify(shortenedUrls));
+  }, [shortenedUrls]);
+
+  const isValidUrl = (url) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/urls`);
-      const data = await response.json();
-      if (response.ok) {
-        setShortenedUrls(data.urls);
-      }
-    } catch (error) {
-      console.error('Failed to fetch URLs:', error);
+      new URL(url);
+      return true;
+    } catch {
+      return false;
     }
   };
 
-  const fetchStats = async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/urls/stats/dashboard`);
-      const data = await response.json();
-      if (response.ok) {
-        setStats({
-          totalUrls: data.totalUrls,
-          totalClicks: data.totalClicks
-        });
-      }
-    } catch (error) {
-      console.error('Failed to fetch stats:', error);
+  const generateShortCode = () => {
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let result = '';
+    for (let i = 0; i < 6; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
     }
+    return result;
+  };
+
+  const generateQRCode = (text) => {
+    return `https://chart.googleapis.com/chart?chs=200x200&cht=qr&chl=${encodeURIComponent(text)}`;
   };
 
   const handleShorten = async () => {
@@ -54,36 +56,40 @@ function App() {
       return;
     }
 
-    setIsLoading(true);
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/urls/shorten`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          originalUrl: url,
-          customCode: customCode.trim() || undefined
-        }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        setShortenedUrls(prev => [data, ...prev]);
-        setUrl('');
-        setCustomCode('');
-        fetchStats(); // Update stats
-      } else {
-        setError(data.error || 'Failed to shorten URL');
-      }
-    } catch (error) {
-      setError('Network error. Please try again.');
-      console.error('Shorten URL error:', error);
-    } finally {
-      setIsLoading(false);
+    if (!isValidUrl(url)) {
+      setError('Please enter a valid URL');
+      return;
     }
+
+    setIsLoading(true);
+    await new Promise((resolve) => setTimeout(resolve, 800));
+
+    const shortCode = customCode.trim() || generateShortCode();
+
+    if (
+      customCode.trim() &&
+      shortenedUrls.some((item) => item.shortCode === shortCode)
+    ) {
+      setError('Custom code already exists. Please choose a different one.');
+      setIsLoading(false);
+      return;
+    }
+
+    const shortUrl = `https://short.ly/${shortCode}`;
+    const newUrl = {
+      id: Date.now().toString(),
+      originalUrl: url,
+      shortCode,
+      shortUrl,
+      createdAt: new Date(),
+      clicks: 0,
+      qrCode: generateQRCode(shortUrl),
+    };
+
+    setShortenedUrls((prev) => [newUrl, ...prev]);
+    setUrl('');
+    setCustomCode('');
+    setIsLoading(false);
   };
 
   const handleCopy = async (text, id) => {
@@ -96,32 +102,19 @@ function App() {
     }
   };
 
-  const handleUrlClick = async (shortUrl) => {
-    window.open(shortUrl, '_blank');
-
-    setTimeout(() => {
-      fetchUrls();
-      fetchStats();
-    }, 1000);
+  const handleUrlClick = (id) => {
+    setShortenedUrls((prev) =>
+      prev.map((item) =>
+        item.id === id ? { ...item, clicks: item.clicks + 1 } : item
+      )
+    );
   };
 
-  // const handleDelete = async (id) => {
-  //   try {
-  //     const response = await fetch(`${API_BASE_URL}/urls/${id}`, {
-  //       method: 'DELETE',
-  //     });
-
-  //     if (response.ok) {
-  //       setShortenedUrls(prev => prev.filter(url => url.id !== id));
-  //       fetchStats();
-  //     }
-  //   } catch (error) {
-  //     console.error('Failed to delete URL:', error);
-  //   }
-  // };
+  const totalClicks = shortenedUrls.reduce((sum, url) => sum + url.clicks, 0);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      {/* Header */}
       <header className="bg-white/80 backdrop-blur-sm border-b border-gray-200/50 sticky top-0 z-10">
         <div className="max-w-6xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
@@ -131,27 +124,31 @@ function App() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                  ByteLink
+                  LinkShort
                 </h1>
                 <p className="text-sm text-gray-600">Professional URL Shortener</p>
               </div>
             </div>
 
-            <div className="hidden md:flex items-center space-x-6 text-sm">
-              <div className="flex items-center space-x-2">
-                <BarChart3 className="w-4 h-4 text-blue-500" />
-                <span className="font-medium">{stats.totalUrls} Links</span>
+            {shortenedUrls.length > 0 && (
+              <div className="hidden md:flex items-center space-x-6 text-sm">
+                <div className="flex items-center space-x-2">
+                  <BarChart3 className="w-4 h-4 text-blue-500" />
+                  <span className="font-medium">{shortenedUrls.length} Links</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <TrendingUp className="w-4 h-4 text-green-500" />
+                  <span className="font-medium">{totalClicks} Clicks</span>
+                </div>
               </div>
-              <div className="flex items-center space-x-2">
-                <TrendingUp className="w-4 h-4 text-green-500" />
-                <span className="font-medium">{stats.totalClicks} Clicks</span>
-              </div>
-            </div>
+            )}
           </div>
         </div>
       </header>
 
+      {/* Main Content */}
       <main className="max-w-4xl mx-auto px-4 py-8">
+        {/* Hero Section */}
         <div className="text-center mb-12">
           <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
             Shorten Your Links
@@ -164,6 +161,7 @@ function App() {
           </p>
         </div>
 
+        {/* URL Shortening Form */}
         <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-gray-200/50 shadow-xl p-6 md:p-8 mb-8">
           <div className="space-y-6">
             <div>
@@ -185,12 +183,14 @@ function App() {
                 Custom short code (optional)
               </label>
               <div className="flex items-center">
-                <span className="text-gray-500 text-sm mr-2">byte-link-five.vercel.app/</span>
+                <span className="text-gray-500 text-sm mr-2">short.ly/</span>
                 <input
                   type="text"
                   id="customCode"
                   value={customCode}
-                  onChange={(e) => setCustomCode(e.target.value.replace(/[^a-zA-Z0-9]/g, ''))}
+                  onChange={(e) =>
+                    setCustomCode(e.target.value.replace(/[^a-zA-Z0-9]/g, ''))
+                  }
                   placeholder="mycustomcode"
                   className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
                   maxLength={20}
@@ -222,6 +222,7 @@ function App() {
           </div>
         </div>
 
+        {/* Shortened URL List */}
         {shortenedUrls.length > 0 ? (
           <div className="space-y-4">
             <h3 className="text-2xl font-bold text-gray-900 mb-6">Your Shortened URLs</h3>
@@ -238,19 +239,14 @@ function App() {
                           <Link2 className="w-4 h-4 text-white" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-lg font-semibold text-blue-600 truncate">
-                            {item.shortUrl}
-                          </p>
-                          <p className="text-sm text-gray-600 truncate">
-                            {item.originalUrl}
-                          </p>
+                          <p className="text-lg font-semibold text-blue-600 truncate">{item.shortUrl}</p>
+                          <p className="text-sm text-gray-600 truncate">{item.originalUrl}</p>
                         </div>
                       </div>
-
                       <div className="flex items-center space-x-4 text-xs text-gray-500">
                         <div className="flex items-center space-x-1">
                           <Clock className="w-3 h-3" />
-                          <span>{new Date(item.createdAt).toLocaleDateString()}</span>
+                          <span>{item.createdAt.toLocaleDateString()}</span>
                         </div>
                         <div className="flex items-center space-x-1">
                           <BarChart3 className="w-3 h-3" />
@@ -261,27 +257,20 @@ function App() {
 
                     <div className="flex items-center space-x-2">
                       <button
-                        onClick={() => handleUrlClick(item.shortUrl)}
+                        onClick={() => handleUrlClick(item.id)}
                         className="flex items-center space-x-1 px-3 py-2 text-sm text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all duration-200"
                       >
                         <ExternalLink className="w-4 h-4" />
                         <span>Visit</span>
                       </button>
 
-                      {item.qrCode && (
-                        <button
-                          onClick={() => {
-                            const img = new Image();
-                            img.src = item.qrCode;
-                            const w = window.open('');
-                            if (w) w.document.write(img.outerHTML);
-                          }}
-                          className="flex items-center space-x-1 px-3 py-2 text-sm text-gray-600 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-all duration-200"
-                        >
-                          <QrCode className="w-4 h-4" />
-                          <span>QR</span>
-                        </button>
-                      )}
+                      <button
+                        onClick={() => window.open(item.qrCode, '_blank')}
+                        className="flex items-center space-x-1 px-3 py-2 text-sm text-gray-600 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-all duration-200"
+                      >
+                        <QrCode className="w-4 h-4" />
+                        <span>QR</span>
+                      </button>
 
                       <button
                         onClick={() => handleCopy(item.shortUrl, item.id)}
@@ -315,8 +304,9 @@ function App() {
         )}
       </main>
 
+      {/* Footer */}
       <footer className="mt-16 py-8 text-center text-gray-500 text-sm">
-        <p>&copy; 2025 LinkShort. Built with React, Node.js & MongoDB</p>
+        <p>&copy; 2025 LinkShort. Built with React & Tailwind CSS</p>
       </footer>
     </div>
   );
