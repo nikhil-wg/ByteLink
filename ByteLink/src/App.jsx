@@ -131,7 +131,7 @@ function App() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                  LinkShort
+                  ByteLink
                 </h1>
                 <p className="text-sm text-gray-600">Professional URL Shortener</p>
               </div>
@@ -185,7 +185,7 @@ function App() {
                 Custom short code (optional)
               </label>
               <div className="flex items-center">
-                <span className="text-gray-500 text-sm mr-2">localhost:5000/</span>
+                <span className="text-gray-500 text-sm mr-2">byte-link-five.vercel.app/</span>
                 <input
                   type="text"
                   id="customCode"
